@@ -17,7 +17,7 @@ class KeyzarFenixApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
 
-        self.title("Keyzar Fenix Bot - update test")
+        self.title("Keyzar Fenix Bot - Final Release")
         self.geometry("920x660")
         self.minsize(820, 560)
 
