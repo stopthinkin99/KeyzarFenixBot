@@ -201,6 +201,37 @@ def invoice_path(
     )
 
 
+def get_current_invoice_path() -> Path | None:
+    """
+    Return the newest unsent Keyzar invoice.
+
+    Normally there is only one pending invoice because Send Now deletes
+    it after a successful Outlook submission. Using the newest file also
+    handles a pending invoice that crosses midnight.
+    """
+
+    PENDING_REPORT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    candidates = [
+        path
+        for path in PENDING_REPORT_DIR.glob(
+            "Keyzar Invoice *.xlsx"
+        )
+        if path.is_file()
+    ]
+
+    if not candidates:
+        return None
+
+    return max(
+        candidates,
+        key=lambda path: path.stat().st_mtime,
+    )
+
+
 def style_header(sheet) -> None:
     for column_index, header in enumerate(
         INVOICE_HEADERS,

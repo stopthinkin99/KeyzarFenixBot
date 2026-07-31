@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import tkinter as tk
@@ -9,6 +10,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 from config import POLL_SECONDS
 from email_reader.invoice_sender import send_current_keyzar_invoice
+from excel_reports.daily_report import get_current_invoice_path
 from email_reader.outlook_reader import (
     OutlookMailbox,
     OutlookReader,
@@ -114,6 +116,13 @@ class KeyzarFenixApp(tk.Tk):
             command=self.login_to_fenix,
         )
         self.login_button.pack(side="left", padx=(0, 8))
+
+        self.open_excel_button = ttk.Button(
+            button_frame,
+            text="Open Excel",
+            command=self.open_excel,
+        )
+        self.open_excel_button.pack(side="left", padx=(0, 8))
 
         self.send_button = ttk.Button(
             button_frame,
@@ -409,6 +418,35 @@ class KeyzarFenixApp(tk.Tk):
         self.after(0, ask)
         event.wait()
         return answer["value"]
+
+    def open_excel(self) -> None:
+        workbook_path = get_current_invoice_path()
+
+        if workbook_path is None or not workbook_path.exists():
+            messagebox.showinfo(
+                "No Excel File",
+                "There is no unsent Keyzar invoice available yet.",
+            )
+            return
+
+        try:
+            os.startfile(str(workbook_path))
+            self.log(f"Opened Excel file: {workbook_path.name}")
+
+        except OSError as exc:
+            self.log(
+                f"Could not open Excel: {type(exc).__name__}: {exc}"
+            )
+            messagebox.showerror(
+                "Open Excel Failed",
+                (
+                    f"Could not open:
+{workbook_path}
+
+"
+                    f"{exc}"
+                ),
+            )
 
     def send_now(self) -> None:
         proceed = messagebox.askyesno(

@@ -30,6 +30,7 @@ from scripts.test_available_stone_memo import (
 )
 
 MEMO_NOTE = "Keyzar"
+ALERT_SENDER = "sales@fenixdiamonds.com"
 
 
 @dataclass
@@ -157,6 +158,7 @@ def send_not_found_alert(sender: OutlookEmailSender, order, vendor_id: str) -> N
             "No memo was created and the stone was not added to Excel.\n"
             "Please review the order manually."
         ),
+        send_from=ALERT_SENDER,
     )
 
 
@@ -194,8 +196,27 @@ def send_unavailable_alert(
             f"The stone appears to be blocked for: {blocked_for}\n\n"
             "No new memo was created and the stone was not added to Excel."
         ),
+        send_from=ALERT_SENDER,
     )
 
+
+
+def is_blocked_for_keyzar(records) -> bool:
+    """
+    Return True when any matching memo record identifies Keyzar in the
+    Note or Customer field.
+    """
+
+    for record in records:
+        note = str(getattr(record, "note", "") or "").strip().lower()
+        customer = str(
+            getattr(record, "customer", "") or ""
+        ).strip().lower()
+
+        if "keyzar" in note or "keyzar" in customer:
+            return True
+
+    return False
 
 def _click_memo_issue(page, button) -> None:
     print("[INFO] Clicking the Memo Issue button...")
@@ -264,7 +285,43 @@ def process_keyzar_stone(*, browser, order, vendor_id: str, email_sender: Outloo
 
     if inventory_status not in {"A", "AVAILABLE"}:
         print(f"[RESULT] {vendor_id} unavailable; checking Memo List...")
-        records = search_memo_list(page=page, vendor_id=vendor_id)
+        records = search_memo_list(
+            page=page,
+            vendor_id=vendor_id,
+        )
+
+        blocked_for = determine_blocked_for(records)
+
+        if (
+            inventory_status.upper() == "SM"
+            and is_blocked_for_keyzar(records)
+        ):
+            print(
+                f"[SUCCESS] {vendor_id} is already blocked for Keyzar. "
+                "Appending it to the current Excel invoice."
+            )
+
+            report_path, row_added = append_stone_to_daily_report(
+                order_date=_order_date(order),
+                order_number=order.order_number,
+                vendor_id=vendor_id,
+                portal_headers=headers,
+                portal_values=values,
+            )
+
+            print(
+                f"[SUCCESS] Daily report: {report_path} "
+                f"(row added: {row_added})"
+            )
+
+            return ProcessingResult(
+                vendor_id,
+                "ALREADY_BLOCKED_FOR_KEYZAR",
+                inventory_status=inventory_status,
+                details=blocked_for,
+                report_path=str(report_path),
+            )
+
         send_unavailable_alert(
             email_sender,
             order,
@@ -272,11 +329,12 @@ def process_keyzar_stone(*, browser, order, vendor_id: str, email_sender: Outloo
             inventory_status,
             records,
         )
+
         return ProcessingResult(
             vendor_id,
             "UNAVAILABLE_ALERTED",
             inventory_status=inventory_status,
-            details=determine_blocked_for(records),
+            details=blocked_for,
         )
 
     print(f"[SUCCESS] {vendor_id} is available.")
