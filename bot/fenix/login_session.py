@@ -82,18 +82,64 @@ def save_fenix_login_session(
             if not open_page.is_closed()
         ]
 
-        active_page = active_pages[-1] if active_pages else page
+        _log(
+            log_callback,
+            f"Open Fenix pages detected: {len(active_pages)}",
+        )
 
-        if "/login" in active_page.url.lower():
+        for index, open_page in enumerate(
+            active_pages,
+            start=1,
+        ):
+            try:
+                _log(
+                    log_callback,
+                    f"Page {index}: {open_page.url}",
+                )
+            except Exception:
+                pass
+
+        authenticated_page = next(
+            (
+                open_page
+                for open_page in active_pages
+                if "/search/searchstock" in open_page.url.lower()
+            ),
+            None,
+        )
+
+        # Otherwise accept any Fenix page that is no longer the login page.
+        if authenticated_page is None:
+            authenticated_page = next(
+                (
+                    open_page
+                    for open_page in active_pages
+                    if (
+                        "admin.fenixdiamonds.com" in open_page.url.lower()
+                        and "/login" not in open_page.url.lower()
+                    )
+                ),
+                None,
+            )
+
+        if authenticated_page is None:
             context.close()
             raise RuntimeError(
-                "Fenix still appears to be on the login page. "
-                "Complete the login before confirming."
+                "No authenticated Fenix page was detected. "
+                "Please complete the login and open Search Stock "
+                "before clicking Yes."
             )
+
+        _log(
+            log_callback,
+            f"Authenticated Fenix page detected: "
+            f"{authenticated_page.url}",
+        )
 
         context.storage_state(
             path=str(FENIX_STORAGE_STATE)
         )
+
 
         _log(
             log_callback,
