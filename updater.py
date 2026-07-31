@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 GITHUB_OWNER = "stopthinkin99"
-GITHUB_REPO = "keyzar-fenix-bot-updates"
+GITHUB_REPO = "KeyzarFenixBot"
 GITHUB_BRANCH = "main"
 REMOTE_BOT_FOLDER = "bot"
 
