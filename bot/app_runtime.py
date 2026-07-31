@@ -9,6 +9,12 @@ from tkinter import messagebox, scrolledtext, ttk
 
 from config import POLL_SECONDS
 from email_reader.invoice_sender import send_current_keyzar_invoice
+from email_reader.outlook_reader import (
+    OutlookMailbox,
+    OutlookReader,
+    load_saved_mailbox,
+    save_outlook_mailbox,
+)
 from fenix.login_session import save_fenix_login_session
 from processing.workflow import run_once
 
@@ -18,8 +24,8 @@ class KeyzarFenixApp(tk.Tk):
         super().__init__()
 
         self.title("Keyzar Fenix Bot - Final Release")
-        self.geometry("920x660")
-        self.minsize(820, 560)
+        self.geometry("960x700")
+        self.minsize(860, 600)
 
         self.stop_event = threading.Event()
         self.worker_thread: threading.Thread | None = None
@@ -61,6 +67,21 @@ class KeyzarFenixApp(tk.Tk):
         ttk.Label(
             status_frame,
             textvariable=self.status_var,
+        ).pack(side="left", padx=(8, 24))
+
+        ttk.Label(
+            status_frame,
+            text="Outlook mailbox:",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side="left")
+
+        saved_mailbox = load_saved_mailbox()
+        self.mailbox_var = tk.StringVar(
+            value=saved_mailbox.get("display_name", "") or "Default Outlook Inbox"
+        )
+        ttk.Label(
+            status_frame,
+            textvariable=self.mailbox_var,
         ).pack(side="left", padx=(8, 0))
 
         button_frame = ttk.Frame(self)
@@ -80,6 +101,13 @@ class KeyzarFenixApp(tk.Tk):
         )
         self.stop_button.pack(side="left", padx=(0, 8))
 
+        self.outlook_button = ttk.Button(
+            button_frame,
+            text="Connect Outlook",
+            command=self.connect_outlook,
+        )
+        self.outlook_button.pack(side="left", padx=(0, 8))
+
         self.login_button = ttk.Button(
             button_frame,
             text="Login to Fenix",
@@ -97,10 +125,9 @@ class KeyzarFenixApp(tk.Tk):
         ttk.Label(
             self,
             text=(
-                "Send Now emails the current Excel file to "
-                "salesinvoice@egonservices.com, CCs "
-                "fenixny.bizops@fenixdiamonds.com, and deletes the local file "
-                "only after Outlook accepts the message."
+                "Use Connect Outlook once on a new computer to select the mailbox "
+                "that contains Keyzar orders. Send Now emails the current Excel file "
+                "to Pune and deletes the local file only after Outlook accepts it."
             ),
             wraplength=840,
             justify="left",
@@ -183,6 +210,117 @@ class KeyzarFenixApp(tk.Tk):
 
         self.status_var.set("Stopped")
         self.log("Bot stopped.")
+
+
+    def connect_outlook(self) -> None:
+        if self.worker_thread and self.worker_thread.is_alive():
+            messagebox.showinfo(
+                "Stop Bot First",
+                "Please click Stop Bot and wait until the status says Stopped before selecting an Outlook mailbox.",
+            )
+            return
+
+        self.outlook_button.configure(state="disabled")
+        self.status_var.set("Checking Outlook")
+        self.log("Reading available Classic Outlook mailboxes...")
+        threading.Thread(target=self._discover_outlook_worker, daemon=True).start()
+
+    def _discover_outlook_worker(self) -> None:
+        reader = OutlookReader()
+        mailboxes = []
+        try:
+            reader.connect()
+            mailboxes = reader.list_mailboxes()
+        except Exception as exc:
+            self.log(f"Outlook connection failed: {type(exc).__name__}: {exc}")
+            self.after(0, lambda error=str(exc): messagebox.showerror("Outlook Connection Failed", error))
+        finally:
+            reader.disconnect()
+            self.after(0, lambda: self.outlook_button.configure(state="normal"))
+            self.status_var.set("Stopped")
+
+        if mailboxes:
+            self.after(0, lambda: self._show_mailbox_dialog(mailboxes))
+
+    def _show_mailbox_dialog(self, mailboxes: list[OutlookMailbox]) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("Select Outlook Mailbox")
+        dialog.geometry("650x280")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="Select the mailbox containing Keyzar orders:",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", padx=20, pady=(20, 8))
+
+        choices = [
+            f"{m.display_name} — {m.total_items} items, {m.unread_items} unread"
+            for m in mailboxes
+        ]
+        selected_text = tk.StringVar(value=choices[0])
+        combo = ttk.Combobox(
+            dialog,
+            textvariable=selected_text,
+            values=choices,
+            state="readonly",
+            width=75,
+        )
+        combo.pack(fill="x", padx=20, pady=(0, 14))
+
+        ttk.Label(
+            dialog,
+            text=(
+                "After saving, the app will show the five newest subjects from "
+                "that Inbox so you can confirm it is the correct mailbox."
+            ),
+            wraplength=600,
+            justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 18))
+
+        def save_selection() -> None:
+            index = combo.current()
+            if index < 0:
+                return
+            mailbox = mailboxes[index]
+            save_outlook_mailbox(
+                store_id=mailbox.store_id,
+                display_name=mailbox.display_name,
+            )
+            self.mailbox_var.set(mailbox.display_name)
+            dialog.destroy()
+            self.log(f"Saved Outlook mailbox: {mailbox.display_name}")
+            threading.Thread(target=self._test_selected_mailbox_worker, daemon=True).start()
+
+        ttk.Button(dialog, text="Save and Test", command=save_selection).pack(pady=(0, 16))
+
+    def _test_selected_mailbox_worker(self) -> None:
+        reader = OutlookReader()
+        try:
+            reader.connect()
+            self.log(f"Connected to Outlook mailbox: {reader.mailbox_display_name}")
+            preview = reader.get_recent_email_preview(5)
+            self.log(f"Newest messages found: {len(preview)}")
+            for email in preview:
+                received = (
+                    email.received_time.strftime("%m/%d/%Y %I:%M %p")
+                    if email.received_time
+                    else "Unknown time"
+                )
+                self.log(f"  {received} | {email.sender_name} | {email.subject}")
+            self.after(
+                0,
+                lambda: messagebox.showinfo(
+                    "Outlook Connected",
+                    "The Outlook mailbox was saved and tested. Review the app log to confirm the newest subjects.",
+                ),
+            )
+        except Exception as exc:
+            self.log(f"Outlook test failed: {type(exc).__name__}: {exc}")
+            self.after(0, lambda error=str(exc): messagebox.showerror("Outlook Test Failed", error))
+        finally:
+            reader.disconnect()
 
     def login_to_fenix(self) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
