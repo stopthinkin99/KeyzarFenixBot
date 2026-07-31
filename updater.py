@@ -14,11 +14,10 @@ GITHUB_REPO = "KeyzarFenixBot"
 GITHUB_BRANCH = "main"
 REMOTE_BOT_FOLDER = "bot"
 
-APP_DIR = (
-    Path(sys.executable).resolve().parent
-    if getattr(sys, "frozen", False)
-    else Path(__file__).resolve().parent
-)
+# updater.py is always kept beside KeyzarFenixBot.exe.
+# Using __file__ makes it update the folder containing this updater,
+# whether it is called by the EXE or tested manually with Python.
+APP_DIR = Path(__file__).resolve().parent
 
 LOCAL_BOT_DIR = APP_DIR / "bot"
 
