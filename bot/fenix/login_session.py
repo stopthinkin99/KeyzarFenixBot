@@ -29,13 +29,15 @@ def save_fenix_login_session(
 ) -> None:
     """
     Open a visible Edge window, let the user log in manually,
-    and save the authenticated cookies/local storage for future runs.
+    verify the authenticated session by opening Search Stock,
+    and save the cookies/local storage for future background runs.
     """
 
     BROWSER_PROFILE_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
+
     FENIX_STORAGE_STATE.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -50,6 +52,7 @@ def save_fenix_login_session(
             args=[
                 "--start-maximized",
                 "--disable-notifications",
+                "--disable-popup-blocking",
             ],
         )
 
@@ -72,9 +75,15 @@ def save_fenix_login_session(
 
         if not confirmation_callback():
             context.close()
+
             raise RuntimeError(
                 "Fenix login was cancelled."
             )
+
+        _log(
+            log_callback,
+            "Verifying the Fenix login by opening Search Stock...",
+        )
 
         active_pages = [
             open_page
@@ -82,68 +91,61 @@ def save_fenix_login_session(
             if not open_page.is_closed()
         ]
 
-        _log(
-            log_callback,
-            f"Open Fenix pages detected: {len(active_pages)}",
+        verification_page = (
+            active_pages[-1]
+            if active_pages
+            else context.new_page()
         )
 
-        for index, open_page in enumerate(
-            active_pages,
-            start=1,
-        ):
-            try:
-                _log(
-                    log_callback,
-                    f"Page {index}: {open_page.url}",
+        try:
+            verification_page.goto(
+                PORTAL_URL,
+                wait_until="domcontentloaded",
+                timeout=90_000,
+            )
+
+            verification_page.wait_for_timeout(
+                3_000
+            )
+
+            current_url = verification_page.url
+
+            _log(
+                log_callback,
+                f"Fenix verification URL: {current_url}",
+            )
+
+            if "/login" in current_url.lower():
+                raise RuntimeError(
+                    "Fenix redirected back to the login page. "
+                    "Please complete the login inside the Edge "
+                    "window opened by the app before clicking Yes."
                 )
-            except Exception:
-                pass
 
-        authenticated_page = next(
-            (
-                open_page
-                for open_page in active_pages
-                if "/search/searchstock" in open_page.url.lower()
-            ),
-            None,
-        )
+            if (
+                "/search/searchstock"
+                not in current_url.lower()
+            ):
+                raise RuntimeError(
+                    "Fenix login may be complete, but Search Stock "
+                    "did not open successfully. "
+                    f"Current page: {current_url}"
+                )
 
-        # Otherwise accept any Fenix page that is no longer the login page.
-        if authenticated_page is None:
-            authenticated_page = next(
-                (
-                    open_page
-                    for open_page in active_pages
-                    if (
-                        "admin.fenixdiamonds.com" in open_page.url.lower()
-                        and "/login" not in open_page.url.lower()
-                    )
-                ),
-                None,
+            context.storage_state(
+                path=str(FENIX_STORAGE_STATE)
             )
 
-        if authenticated_page is None:
+            _log(
+                log_callback,
+                "Fenix login session saved successfully.",
+            )
+
+            _log(
+                log_callback,
+                f"Saved session file: "
+                f"{FENIX_STORAGE_STATE}",
+            )
+
+        finally:
             context.close()
-            raise RuntimeError(
-                "No authenticated Fenix page was detected. "
-                "Please complete the login and open Search Stock "
-                "before clicking Yes."
-            )
-
-        _log(
-            log_callback,
-            f"Authenticated Fenix page detected: "
-            f"{authenticated_page.url}",
-        )
-
-        context.storage_state(
-            path=str(FENIX_STORAGE_STATE)
-        )
-
-
-        _log(
-            log_callback,
-            "Fenix login session saved successfully.",
-        )
-
-        context.close()
