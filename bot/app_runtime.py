@@ -431,19 +431,21 @@ class KeyzarFenixApp(tk.Tk):
 
         try:
             os.startfile(str(workbook_path))
-            self.log(f"Opened Excel file: {workbook_path.name}")
+            self.log(
+                f"Opened Excel file: {workbook_path.name}"
+            )
 
         except OSError as exc:
             self.log(
-                f"Could not open Excel: {type(exc).__name__}: {exc}"
+                f"Could not open Excel: "
+                f"{type(exc).__name__}: {exc}"
             )
+
             messagebox.showerror(
                 "Open Excel Failed",
                 (
-                    f"Could not open:
-{workbook_path}
-
-"
+                    f"Could not open:\n"
+                    f"{workbook_path}\n\n"
                     f"{exc}"
                 ),
             )
