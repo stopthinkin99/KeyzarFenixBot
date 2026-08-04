@@ -79,3 +79,13 @@ MEMO_LIST_URL = (
 )
 
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "300"))
+
+FENIX_USERNAME = os.getenv(
+    "FENIX_USERNAME",
+    "",
+).strip()
+
+FENIX_PASSWORD = os.getenv(
+    "FENIX_PASSWORD",
+    "",
+)

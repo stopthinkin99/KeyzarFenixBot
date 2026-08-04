@@ -20,8 +20,7 @@ from email_reader.outlook_reader import (
     load_saved_mailbox,
     save_outlook_mailbox,
 )
-from fenix.credential_store import delete_fenix_credentials
-from fenix.login_session import save_fenix_credentials_and_session
+
 from processing.workflow import run_once
 
 
@@ -113,20 +112,6 @@ class KeyzarFenixApp(tk.Tk):
             command=self.connect_outlook,
         )
         self.outlook_button.pack(side="left", padx=(0, 8))
-
-        self.login_button = ttk.Button(
-            button_frame,
-            text="Save Fenix Login",
-            command=self.save_fenix_login,
-        )
-        self.login_button.pack(side="left", padx=(0, 8))
-
-        self.clear_login_button = ttk.Button(
-            button_frame,
-            text="Clear Fenix Login",
-            command=self.clear_fenix_login,
-        )
-        self.clear_login_button.pack(side="left", padx=(0, 8))
 
         self.open_excel_button = ttk.Button(
             button_frame,
@@ -435,110 +420,6 @@ class KeyzarFenixApp(tk.Tk):
         self.wait_window(dialog)
 
         return result["value"]
-
-
-    def save_fenix_login(self) -> None:
-        if self.worker_thread and self.worker_thread.is_alive():
-            messagebox.showinfo(
-                "Stop Bot First",
-                "Please stop the bot before saving Fenix credentials.",
-            )
-            return
-
-        username = self._ask_text(
-            title="Save Fenix Login",
-            prompt="Enter the Fenix username:",
-        )
-        if username is None:
-            return
-
-        username = username.strip()
-        if not username:
-            messagebox.showerror("Missing Username", "The Fenix username is required.")
-            return
-
-        password = self._ask_text(
-            title="Save Fenix Login",
-            prompt="Enter the Fenix password:",
-            hide_text=True,
-        )
-        if password is None:
-            return
-        if not password:
-            messagebox.showerror("Missing Password", "The Fenix password is required.")
-            return
-
-        self.login_button.configure(state="disabled")
-        self.status_var.set("Saving Fenix login")
-
-        threading.Thread(
-            target=self._save_fenix_login_worker,
-            args=(username, password),
-            daemon=True,
-        ).start()
-
-    def _save_fenix_login_worker(self, username: str, password: str) -> None:
-        try:
-            save_fenix_credentials_and_session(
-                username=username,
-                password=password,
-                log_callback=self.log,
-            )
-
-            self.status_var.set("Stopped")
-            self.after(
-                0,
-                lambda: messagebox.showinfo(
-                    "Fenix Login Saved",
-                    (
-                        "The Fenix login was saved securely for this Windows user.\n\n"
-                        "The bot will automatically sign in whenever the saved "
-                        "Fenix session expires."
-                    ),
-                ),
-            )
-        except Exception as exc:
-            self.status_var.set("Stopped")
-            self.log(f"Fenix login save failed: {type(exc).__name__}: {exc}")
-            self.after(
-                0,
-                lambda error=str(exc): messagebox.showerror(
-                    "Fenix Login Failed",
-                    error,
-                ),
-            )
-        finally:
-            self.after(
-                0,
-                lambda: self.login_button.configure(state="normal"),
-            )
-
-    def clear_fenix_login(self) -> None:
-        if self.worker_thread and self.worker_thread.is_alive():
-            messagebox.showinfo(
-                "Stop Bot First",
-                "Please stop the bot before clearing the saved Fenix login.",
-            )
-            return
-
-        proceed = messagebox.askyesno(
-            "Clear Fenix Login",
-            "Remove the saved Fenix username and password?",
-        )
-        if not proceed:
-            return
-
-        if delete_fenix_credentials():
-            self.log("Saved Fenix credentials were removed.")
-            messagebox.showinfo(
-                "Fenix Login Cleared",
-                "The saved Fenix credentials were removed.",
-            )
-        else:
-            messagebox.showinfo(
-                "No Saved Login",
-                "No saved Fenix credentials were found.",
-            )
 
     def open_excel(self) -> None:
         workbook_path = get_current_invoice_path()

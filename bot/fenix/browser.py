@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from playwright.sync_api import Browser, BrowserContext, Locator, Page, Playwright, sync_playwright
 
-from config import BROWSER_CHANNEL, FENIX_HEADLESS, FENIX_STORAGE_STATE, PORTAL_URL
+from config import BROWSER_CHANNEL, FENIX_HEADLESS, FENIX_PASSWORD, FENIX_STORAGE_STATE, FENIX_USERNAME, PORTAL_URL
 from fenix.credential_store import load_fenix_credentials
 
 
@@ -94,11 +94,12 @@ class FenixBrowser:
             return
 
         print("[INFO] Saved Fenix session expired. Attempting automatic login...")
-        credentials = load_fenix_credentials()
+        username = FENIX_USERNAME
+        password = FENIX_PASSWORD
 
-        if credentials is None:
+        if not username or not password:
             raise RuntimeError(
-                "Fenix login is required. Stop the bot and click "
+                "Fenix credentials are missing from local .env file "
                 "'Save Fenix Login' once to securely store the credentials."
             )
 
