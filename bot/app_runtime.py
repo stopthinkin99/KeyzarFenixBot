@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox, scrolledtext, simpledialog, ttk
+from tkinter import messagebox, scrolledtext, ttk
 
 from config import POLL_SECONDS
 from email_reader.invoice_sender import (
@@ -344,6 +344,98 @@ class KeyzarFenixApp(tk.Tk):
         finally:
             reader.disconnect()
 
+    def _ask_text(
+        self,
+        *,
+        title: str,
+        prompt: str,
+        hide_text: bool = False,
+    ) -> str | None:
+        dialog = tk.Toplevel(self)
+        dialog.title(title)
+        dialog.geometry("440x180")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        result: dict[str, str | None] = {
+            "value": None,
+        }
+
+        ttk.Label(
+            dialog,
+            text=prompt,
+            wraplength=390,
+            justify="left",
+        ).pack(
+            anchor="w",
+            padx=20,
+            pady=(22, 8),
+        )
+
+        value_var = tk.StringVar()
+
+        entry = ttk.Entry(
+            dialog,
+            textvariable=value_var,
+            show="*" if hide_text else "",
+            width=48,
+        )
+        entry.pack(
+            fill="x",
+            padx=20,
+            pady=(0, 18),
+        )
+        entry.focus_set()
+
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(
+            fill="x",
+            padx=20,
+            pady=(0, 18),
+    )
+
+    def submit() -> None:
+        result["value"] = value_var.get()
+        dialog.destroy()
+
+    def cancel() -> None:
+        result["value"] = None
+        dialog.destroy()
+
+        ttk.Button(
+            button_frame,
+            text="Save",
+            command=submit,
+        ).pack(
+            side="right",
+            padx=(8, 0),
+        )
+
+        ttk.Button(
+            button_frame,
+            text="Cancel",
+            command=cancel,
+        ).pack(side="right")
+
+        dialog.bind(
+            "<Return>",
+            lambda _event: submit(),
+        )
+        dialog.bind(
+            "<Escape>",
+            lambda _event: cancel(),
+        )
+
+        dialog.protocol(
+            "WM_DELETE_WINDOW",
+            cancel,
+        )
+
+        self.wait_window(dialog)
+
+        return result["value"]
+
 
     def save_fenix_login(self) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
@@ -353,10 +445,9 @@ class KeyzarFenixApp(tk.Tk):
             )
             return
 
-        username = simpledialog.askstring(
-            "Save Fenix Login",
-            "Enter the Fenix username:",
-            parent=self,
+        username = self._ask_text(
+            title="Save Fenix Login",
+            prompt="Enter the Fenix username:",
         )
         if username is None:
             return
@@ -366,11 +457,10 @@ class KeyzarFenixApp(tk.Tk):
             messagebox.showerror("Missing Username", "The Fenix username is required.")
             return
 
-        password = simpledialog.askstring(
-            "Save Fenix Login",
-            "Enter the Fenix password:",
-            parent=self,
-            show="*",
+        password = self._ask_text(
+            title="Save Fenix Login",
+            prompt="Enter the Fenix password:",
+            hide_text=True,
         )
         if password is None:
             return
