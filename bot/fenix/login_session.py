@@ -4,7 +4,6 @@ from collections.abc import Callable
 from playwright.sync_api import sync_playwright
 
 from config import BROWSER_CHANNEL, BROWSER_PROFILE_DIR, FENIX_STORAGE_STATE, PORTAL_URL
-from fenix.credential_store import save_fenix_credentials
 from fenix.browser import (
     PASSWORD_SELECTORS,
     SUBMIT_SELECTORS,
