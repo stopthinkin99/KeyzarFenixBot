@@ -483,7 +483,8 @@ class KeyzarFenixApp(tk.Tk):
                 "Send the current Keyzar invoice now?\n\n"
                 "To: salesinvoice@egonservices.com\n"
                 "CC: fenixny.bizops@fenixdiamonds.com\n"
-                "From: sales@fenixdiamonds.com\n\n"
+                "From: selected Outlook mailbox\n\n"
+                "The Excel filename will be updated to today's date.\n"
                 "The local Excel file will be deleted only after "
                 "Outlook accepts the message."
             ),
