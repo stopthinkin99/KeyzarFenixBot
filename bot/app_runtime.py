@@ -9,7 +9,10 @@ from pathlib import Path
 from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
 from config import POLL_SECONDS
-from email_reader.invoice_sender import send_current_keyzar_invoice
+from email_reader.invoice_sender import (
+    cleanup_sent_invoices,
+    send_current_keyzar_invoice,
+)
 from excel_reports.daily_report import get_current_invoice_path
 from email_reader.outlook_reader import (
     OutlookMailbox,
@@ -208,6 +211,8 @@ class KeyzarFenixApp(tk.Tk):
     def _monitor_loop(self) -> None:
         while not self.stop_event.is_set():
             self.log("Starting Outlook/Fenix processing cycle.")
+
+            cleanup_sent_invoices(log_callback=self.log)
 
             try:
                 result = run_once(log_callback=self.log)
@@ -483,8 +488,7 @@ class KeyzarFenixApp(tk.Tk):
                 "Send the current Keyzar invoice now?\n\n"
                 "To: salesinvoice@egonservices.com\n"
                 "CC: fenixny.bizops@fenixdiamonds.com\n"
-                "From: selected Outlook mailbox\n\n"
-                "The Excel filename will be updated to today's date.\n"
+                "From: sales@fenixdiamonds.com\n\n"
                 "The local Excel file will be deleted only after "
                 "Outlook accepts the message."
             ),
