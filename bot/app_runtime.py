@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import messagebox, scrolledtext, simpledialog, ttk
 
 from config import POLL_SECONDS
 from email_reader.invoice_sender import send_current_keyzar_invoice
@@ -17,7 +17,8 @@ from email_reader.outlook_reader import (
     load_saved_mailbox,
     save_outlook_mailbox,
 )
-from fenix.login_session import save_fenix_login_session
+from fenix.credential_store import delete_fenix_credentials
+from fenix.login_session import save_fenix_credentials_and_session
 from processing.workflow import run_once
 
 
@@ -112,10 +113,17 @@ class KeyzarFenixApp(tk.Tk):
 
         self.login_button = ttk.Button(
             button_frame,
-            text="Login to Fenix",
-            command=self.login_to_fenix,
+            text="Save Fenix Login",
+            command=self.save_fenix_login,
         )
         self.login_button.pack(side="left", padx=(0, 8))
+
+        self.clear_login_button = ttk.Button(
+            button_frame,
+            text="Clear Fenix Login",
+            command=self.clear_fenix_login,
+        )
+        self.clear_login_button.pack(side="left", padx=(0, 8))
 
         self.open_excel_button = ttk.Button(
             button_frame,
@@ -331,42 +339,54 @@ class KeyzarFenixApp(tk.Tk):
         finally:
             reader.disconnect()
 
-    def login_to_fenix(self) -> None:
+
+    def save_fenix_login(self) -> None:
         if self.worker_thread and self.worker_thread.is_alive():
             messagebox.showinfo(
                 "Stop Bot First",
-                (
-                    "Please click Stop Bot and wait until the status says "
-                    "Stopped before opening the Fenix login window."
-                ),
+                "Please stop the bot before saving Fenix credentials.",
             )
             return
 
-        proceed = messagebox.askyesno(
-            "Login to Fenix",
-            (
-                "A visible Edge window will open.\n\n"
-                "Log in to Fenix and open Search Stock. Then return to this "
-                "app and confirm that login is complete.\n\n"
-                "Continue?"
-            ),
+        username = simpledialog.askstring(
+            "Save Fenix Login",
+            "Enter the Fenix username:",
+            parent=self,
         )
+        if username is None:
+            return
 
-        if not proceed:
+        username = username.strip()
+        if not username:
+            messagebox.showerror("Missing Username", "The Fenix username is required.")
+            return
+
+        password = simpledialog.askstring(
+            "Save Fenix Login",
+            "Enter the Fenix password:",
+            parent=self,
+            show="*",
+        )
+        if password is None:
+            return
+        if not password:
+            messagebox.showerror("Missing Password", "The Fenix password is required.")
             return
 
         self.login_button.configure(state="disabled")
-        self.status_var.set("Waiting for Fenix login")
+        self.status_var.set("Saving Fenix login")
 
         threading.Thread(
-            target=self._login_worker,
+            target=self._save_fenix_login_worker,
+            args=(username, password),
             daemon=True,
         ).start()
 
-    def _login_worker(self) -> None:
+    def _save_fenix_login_worker(self, username: str, password: str) -> None:
         try:
-            save_fenix_login_session(
-                confirmation_callback=self._confirm_login_complete,
+            save_fenix_credentials_and_session(
+                username=username,
+                password=password,
                 log_callback=self.log,
             )
 
@@ -376,17 +396,15 @@ class KeyzarFenixApp(tk.Tk):
                 lambda: messagebox.showinfo(
                     "Fenix Login Saved",
                     (
-                        "The Fenix login was saved successfully.\n\n"
-                        "Click Start Bot to resume monitoring."
+                        "The Fenix login was saved securely for this Windows user.\n\n"
+                        "The bot will automatically sign in whenever the saved "
+                        "Fenix session expires."
                     ),
                 ),
             )
-
         except Exception as exc:
             self.status_var.set("Stopped")
-            self.log(
-                f"Fenix login failed: {type(exc).__name__}: {exc}"
-            )
+            self.log(f"Fenix login save failed: {type(exc).__name__}: {exc}")
             self.after(
                 0,
                 lambda error=str(exc): messagebox.showerror(
@@ -394,30 +412,38 @@ class KeyzarFenixApp(tk.Tk):
                     error,
                 ),
             )
-
         finally:
             self.after(
                 0,
                 lambda: self.login_button.configure(state="normal"),
             )
 
-    def _confirm_login_complete(self) -> bool:
-        event = threading.Event()
-        answer = {"value": False}
-
-        def ask() -> None:
-            answer["value"] = messagebox.askyesno(
-                "Save Fenix Login",
-                (
-                    "Have you finished logging in and opened the "
-                    "Search Stock page?"
-                ),
+    def clear_fenix_login(self) -> None:
+        if self.worker_thread and self.worker_thread.is_alive():
+            messagebox.showinfo(
+                "Stop Bot First",
+                "Please stop the bot before clearing the saved Fenix login.",
             )
-            event.set()
+            return
 
-        self.after(0, ask)
-        event.wait()
-        return answer["value"]
+        proceed = messagebox.askyesno(
+            "Clear Fenix Login",
+            "Remove the saved Fenix username and password?",
+        )
+        if not proceed:
+            return
+
+        if delete_fenix_credentials():
+            self.log("Saved Fenix credentials were removed.")
+            messagebox.showinfo(
+                "Fenix Login Cleared",
+                "The saved Fenix credentials were removed.",
+            )
+        else:
+            messagebox.showinfo(
+                "No Saved Login",
+                "No saved Fenix credentials were found.",
+            )
 
     def open_excel(self) -> None:
         workbook_path = get_current_invoice_path()

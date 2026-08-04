@@ -1,54 +1,39 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from playwright.sync_api import sync_playwright
 
-from config import (
-    BROWSER_CHANNEL,
-    BROWSER_PROFILE_DIR,
-    FENIX_STORAGE_STATE,
-    PORTAL_URL,
+from config import BROWSER_CHANNEL, BROWSER_PROFILE_DIR, FENIX_STORAGE_STATE, PORTAL_URL
+from fenix.credential_store import save_fenix_credentials
+from fenix.browser import (
+    PASSWORD_SELECTORS,
+    SUBMIT_SELECTORS,
+    USERNAME_SELECTORS,
+    _first_visible_locator,
 )
 
 
-def _log(
-    callback: Callable[[str], None] | None,
-    message: str,
-) -> None:
+def _log(callback: Callable[[str], None] | None, message: str) -> None:
     if callback:
         callback(message)
     else:
         print(message)
 
 
-def save_fenix_login_session(
+def save_fenix_credentials_and_session(
     *,
-    confirmation_callback: Callable[[], bool],
+    username: str,
+    password: str,
     log_callback: Callable[[str], None] | None = None,
 ) -> None:
-    """
-    Open a visible persistent Edge window and save its authentication
-    state after the user confirms that login is complete.
+    save_fenix_credentials(username, password)
 
-    This intentionally matches the original working login_once.py flow.
-    It does not rely on the browser URL because Fenix can leave the URL
-    showing /login/index even after the authenticated portal is visible.
-    """
-
-    BROWSER_PROFILE_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    FENIX_STORAGE_STATE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    FENIX_STORAGE_STATE.parent.mkdir(parents=True, exist_ok=True)
 
     _log(
         log_callback,
-        "Starting the Fenix login browser...",
+        "Fenix credentials saved securely in Windows Credential Manager.",
     )
 
     with sync_playwright() as playwright:
@@ -65,69 +50,81 @@ def save_fenix_login_session(
         )
 
         try:
-            page = (
-                context.pages[0]
-                if context.pages
-                else context.new_page()
-            )
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=90_000)
+            page.wait_for_timeout(2_000)
+
+            if "/login" in page.url.lower():
+                username_field = _first_visible_locator(page, USERNAME_SELECTORS)
+                password_field = _first_visible_locator(page, PASSWORD_SELECTORS)
+
+                if username_field is None or password_field is None:
+                    raise RuntimeError(
+                        "Could not find the Fenix username/password fields."
+                    )
+
+                username_field.fill(username)
+                password_field.fill(password)
+
+                submit_button = _first_visible_locator(page, SUBMIT_SELECTORS)
+                if submit_button is not None:
+                    submit_button.click(force=True)
+                else:
+                    password_field.press("Enter")
+
+                try:
+                    page.wait_for_url(
+                        lambda url: "/login" not in url.lower(),
+                        timeout=45_000,
+                    )
+                except Exception:
+                    page.wait_for_timeout(3_000)
+
+            if "/login" in page.url.lower():
+                raise RuntimeError(
+                    "Fenix login failed. Check the username and password."
+                )
+
+            page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=90_000)
+            context.storage_state(path=str(FENIX_STORAGE_STATE))
 
             _log(
                 log_callback,
-                "Opening the Fenix portal...",
+                "Fenix automatic login tested and session saved successfully.",
             )
+        finally:
+            context.close()
 
-            page.goto(
-                PORTAL_URL,
-                wait_until="domcontentloaded",
-                timeout=90_000,
-            )
 
-            _log(
-                log_callback,
-                (
-                    "Log in to Fenix and open Search Stock. "
-                    "Then return to the app and click Yes."
-                ),
-            )
+def save_fenix_login_session(
+    *,
+    confirmation_callback: Callable[[], bool],
+    log_callback: Callable[[str], None] | None = None,
+) -> None:
+    BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    FENIX_STORAGE_STATE.parent.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=str(BROWSER_PROFILE_DIR),
+            channel=BROWSER_CHANNEL,
+            headless=False,
+            no_viewport=True,
+            args=[
+                "--start-maximized",
+                "--disable-notifications",
+                "--disable-popup-blocking",
+            ],
+        )
+
+        try:
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto(PORTAL_URL, wait_until="domcontentloaded", timeout=90_000)
 
             if not confirmation_callback():
-                raise RuntimeError(
-                    "Fenix login was cancelled."
-                )
+                raise RuntimeError("Fenix login was cancelled.")
 
-            _log(
-                log_callback,
-                "Saving the authenticated Fenix session...",
-            )
-
-            # Save all cookies and local-storage values from the persistent
-            # browser context. This is the same operation used by the
-            # original working login_once.py script.
-            context.storage_state(
-                path=str(FENIX_STORAGE_STATE)
-            )
-
-            if not FENIX_STORAGE_STATE.exists():
-                raise RuntimeError(
-                    "The Fenix session file could not be created."
-                )
-
-            file_size = FENIX_STORAGE_STATE.stat().st_size
-
-            if file_size == 0:
-                raise RuntimeError(
-                    "The Fenix session file was created but is empty."
-                )
-
-            _log(
-                log_callback,
-                "Fenix login session saved successfully.",
-            )
-
-            _log(
-                log_callback,
-                f"Saved session file: {FENIX_STORAGE_STATE}",
-            )
-
+            context.storage_state(path=str(FENIX_STORAGE_STATE))
+            _log(log_callback, "Fenix login session saved successfully.")
         finally:
             context.close()
