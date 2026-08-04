@@ -3,7 +3,6 @@ from __future__ import annotations
 from playwright.sync_api import Browser, BrowserContext, Locator, Page, Playwright, sync_playwright
 
 from config import BROWSER_CHANNEL, FENIX_HEADLESS, FENIX_PASSWORD, FENIX_STORAGE_STATE, FENIX_USERNAME, PORTAL_URL
-from fenix.credential_store import load_fenix_credentials
 
 
 USERNAME_SELECTORS = [
