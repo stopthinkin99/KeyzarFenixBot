@@ -10,7 +10,6 @@ from tkinter import messagebox, scrolledtext, ttk
 
 from config import POLL_SECONDS
 from email_reader.invoice_sender import (
-    cleanup_sent_invoices,
     send_current_keyzar_invoice,
 )
 from excel_reports.daily_report import get_current_invoice_path
@@ -197,7 +196,6 @@ class KeyzarFenixApp(tk.Tk):
         while not self.stop_event.is_set():
             self.log("Starting Outlook/Fenix processing cycle.")
 
-            cleanup_sent_invoices(log_callback=self.log)
 
             try:
                 result = run_once(log_callback=self.log)
