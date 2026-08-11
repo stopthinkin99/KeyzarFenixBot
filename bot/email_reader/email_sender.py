@@ -7,6 +7,9 @@ import pythoncom
 import win32com.client
 
 
+REQUIRED_BOT_SENDER = "sales@fenixdiamonds.com"
+
+
 class OutlookEmailSender:
     OL_MAIL_ITEM = 0
 
@@ -26,6 +29,11 @@ class OutlookEmailSender:
         if not recipient_text:
             raise ValueError("At least one recipient is required.")
 
+        # Keyzar bot mail must never silently fall back to Nishit's default
+        # Outlook account. If a caller does not provide a sender, use the
+        # Fenix Sales mailbox explicitly.
+        requested_sender = (send_from or REQUIRED_BOT_SENDER).strip()
+
         pythoncom.CoInitialize()
 
         try:
@@ -41,7 +49,7 @@ class OutlookEmailSender:
                 outlook=outlook,
                 message=message,
                 send_store_id=send_store_id,
-                send_from=send_from,
+                send_from=requested_sender,
             )
 
             for attachment in attachments or []:
@@ -57,7 +65,8 @@ class OutlookEmailSender:
             message.Send()
 
             print(f"[EMAIL] Sent: {subject}")
-            print(f"[EMAIL] From: {sender_description}")
+            print(f"[EMAIL] Requested From: {requested_sender}")
+            print(f"[EMAIL] Sender mode: {sender_description}")
             print(f"[EMAIL] To: {recipient_text}")
             print(f"[EMAIL] CC: {cc_text or 'None'}")
 
@@ -75,92 +84,76 @@ class OutlookEmailSender:
         outlook,
         message,
         send_store_id: str | None,
-        send_from: str | None,
+        send_from: str,
     ) -> str:
-        session = outlook.Session
-        target_store_id = (send_store_id or "").strip()
-        target_address = (send_from or "").strip().lower()
+        """Force the intended sender instead of Outlook's default account.
 
+        If sales@fenixdiamonds.com is a real Account in the Outlook profile,
+        use SendUsingAccount. If it is a shared mailbox/store, use
+        SentOnBehalfOfName. Exchange must grant the logged-in user Send As
+        (preferred) or Send on Behalf permission for the shared mailbox.
+        """
+        session = outlook.Session
+        target_address = send_from.strip().lower()
+        target_store_id = (send_store_id or "").strip()
+
+        # First and safest: exact SMTP address match. Never select another
+        # account merely because it is Outlook's default.
+        for account in session.Accounts:
+            try:
+                smtp_address = str(
+                    getattr(account, "SmtpAddress", "") or ""
+                ).strip().lower()
+
+                if smtp_address == target_address:
+                    message.SendUsingAccount = account
+                    message.SentOnBehalfOfName = send_from
+                    return f"SendUsingAccount={smtp_address}"
+            except Exception:
+                continue
+
+        # Secondary check: selected mailbox store may map to a real Account,
+        # but only accept it if that account is also the requested sender.
         if target_store_id:
             for account in session.Accounts:
                 try:
                     delivery_store = account.DeliveryStore
-
-                    if (
-                        delivery_store is not None
-                        and str(getattr(delivery_store, "StoreID", "") or "")
-                        == target_store_id
-                    ):
-                        message.SendUsingAccount = account
-
-                        smtp_address = str(
-                            getattr(account, "SmtpAddress", "") or ""
-                        ).strip()
-
-                        display_name = str(
-                            getattr(account, "DisplayName", "") or ""
-                        ).strip()
-
-                        selected_name = (
-                            smtp_address
-                            or display_name
-                            or "selected Outlook account"
-                        )
-
-                        print(
-                            "[EMAIL] Using Outlook account matched "
-                            f"to selected mailbox store: {selected_name}"
-                        )
-
-                        return selected_name
-
-                except Exception:
-                    continue
-
-        if target_address:
-            for account in session.Accounts:
-                try:
+                    store_id = str(
+                        getattr(delivery_store, "StoreID", "") or ""
+                    )
                     smtp_address = str(
                         getattr(account, "SmtpAddress", "") or ""
                     ).strip().lower()
 
-                    display_name = str(
-                        getattr(account, "DisplayName", "") or ""
-                    ).strip().lower()
-
-                    if target_address in {smtp_address, display_name}:
+                    if (
+                        store_id == target_store_id
+                        and smtp_address == target_address
+                    ):
                         message.SendUsingAccount = account
-
-                        print(
-                            "[EMAIL] Using Outlook account matched "
-                            f"by address/name: {send_from}"
-                        )
-
-                        return (
-                            smtp_address
-                            or display_name
-                            or str(send_from)
-                        )
-
+                        message.SentOnBehalfOfName = send_from
+                        return f"SendUsingAccount={smtp_address}"
                 except Exception:
                     continue
 
-            message.SentOnBehalfOfName = send_from
+        # Shared mailbox case. Do NOT silently use the default Nishit address
+        # as the visible sender. Exchange will honor this only when mailbox
+        # delegation includes Send As / Send on Behalf permission.
+        message.SentOnBehalfOfName = send_from
+        message.Save()
 
-            print(
-                "[EMAIL] No direct Outlook account match. "
-                "Using send-on-behalf address: "
-                f"{send_from}"
+        resolved_sender = str(
+            getattr(message, "SentOnBehalfOfName", "") or ""
+        ).strip()
+
+        if resolved_sender.lower() != target_address:
+            raise RuntimeError(
+                "Outlook did not accept sales@fenixdiamonds.com as the "
+                "message sender. Confirm that the mailbox is visible in "
+                "Classic Outlook and that this Windows/Outlook user has "
+                "Send As permission for the sales mailbox."
             )
 
-            return str(send_from)
-
-        print(
-            "[EMAIL] No selected Outlook mailbox was available. "
-            "Using Outlook's default sending account."
-        )
-
-        return "Default Outlook account"
+        return f"SentOnBehalfOfName={resolved_sender}"
 
     @staticmethod
     def _join_addresses(

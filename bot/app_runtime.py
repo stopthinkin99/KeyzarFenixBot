@@ -131,7 +131,7 @@ class KeyzarFenixApp(tk.Tk):
             text=(
                 "Use Connect Outlook once on a new computer to select the mailbox "
                 "that contains Keyzar orders. Send Now emails the current Excel file "
-                "to Pune and deletes the local file only after Outlook accepts it."
+                "to Pune and moves the completed file into sent_reports after Outlook accepts it."
             ),
             wraplength=840,
             justify="left",
@@ -458,8 +458,8 @@ class KeyzarFenixApp(tk.Tk):
                 "To: salesinvoice@egonservices.com\n"
                 "CC: fenixny.bizops@fenixdiamonds.com\n"
                 "From: sales@fenixdiamonds.com\n\n"
-                "The local Excel file will be deleted only after "
-                "Outlook accepts the message."
+                "After Outlook accepts the message, the invoice will be MOVED "
+                "to sent_reports and will no longer appear under Open Excel."
             ),
         )
 
@@ -503,8 +503,8 @@ class KeyzarFenixApp(tk.Tk):
                     "Invoice Sent",
                     (
                         f"{name} was submitted successfully.\n\n"
-                        "The local invoice was deleted. The next blocked stone "
-                        "will start a fresh invoice."
+                        "The invoice was moved to sent_reports. The next blocked stone "
+                        "will start a brand-new pending invoice."
                     ),
                 ),
             )
@@ -524,7 +524,7 @@ class KeyzarFenixApp(tk.Tk):
                     "Invoice Send Failed",
                     (
                         f"{error}\n\n"
-                        "The Excel file was not deleted."
+                        "The unsent Excel file remains in pending_reports."
                     ),
                 ),
             )

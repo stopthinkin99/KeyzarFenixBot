@@ -177,9 +177,8 @@ def adjusted_discount(
 def invoice_filename(
     processing_date: date | None = None,
 ) -> str:
-    processing_date = (
-        processing_date or date.today()
-    )
+    """Return the final/archive filename used when an invoice is sent."""
+    processing_date = processing_date or date.today()
 
     return (
         f"Keyzar Invoice "
@@ -187,50 +186,70 @@ def invoice_filename(
     )
 
 
+PENDING_INVOICE_FILENAME = "Keyzar Pending.xlsx"
+
+
 def invoice_path(
     processing_date: date | None = None,
 ) -> Path:
+    """Return the single ACTIVE unsent invoice path.
+
+    processing_date is accepted for backwards compatibility, but an unsent
+    invoice deliberately has no date in its filename. The date is assigned
+    only when the manager clicks Send Now.
+    """
+    del processing_date
+
     PENDING_REPORT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    return (
-        PENDING_REPORT_DIR
-        / invoice_filename(processing_date)
-    )
+    return PENDING_REPORT_DIR / PENDING_INVOICE_FILENAME
 
 
 def get_current_invoice_path() -> Path | None:
-    """
-    Return the newest unsent Keyzar invoice.
+    """Return the one active unsent Keyzar invoice.
 
-    Normally there is only one pending invoice because Send Now deletes
-    it after a successful Outlook submission. Using the newest file also
-    handles a pending invoice that crosses midnight.
+    New versions always use ``Keyzar Pending.xlsx``. If an older version left
+    a dated ``Keyzar Invoice *.xlsx`` in pending_reports, migrate the newest
+    one once so an in-progress invoice is not lost during the update.
     """
-
     PENDING_REPORT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    candidates = [
+    pending_path = invoice_path()
+
+    if pending_path.exists():
+        return pending_path
+
+    legacy_candidates = [
         path
-        for path in PENDING_REPORT_DIR.glob(
-            "Keyzar Invoice *.xlsx"
-        )
+        for path in PENDING_REPORT_DIR.glob("Keyzar Invoice *.xlsx")
         if path.is_file()
     ]
 
-    if not candidates:
+    if not legacy_candidates:
         return None
 
-    return max(
-        candidates,
+    newest_legacy = max(
+        legacy_candidates,
         key=lambda path: path.stat().st_mtime,
     )
 
+    try:
+        newest_legacy.replace(pending_path)
+        print(
+            f"[EXCEL] Migrated old pending invoice "
+            f"{newest_legacy.name} -> {pending_path.name}"
+        )
+        return pending_path
+    except OSError:
+        # If Excel has the file open, return it as-is. Send Now will report
+        # the lock clearly instead of losing the unsent invoice.
+        return newest_legacy
 
 def style_header(sheet) -> None:
     for column_index, header in enumerate(
@@ -405,11 +424,11 @@ def append_stone_to_daily_report(
     del order_date
     del order_number
 
-    processing_date = (
-        processing_date or date.today()
-    )
+    processing_date = processing_date or date.today()
 
-    path = invoice_path(processing_date)
+    # There is exactly one active unsent workbook. It keeps receiving rows
+    # until Send Now moves it into sent_reports.
+    path = get_current_invoice_path() or invoice_path(processing_date)
 
     if not path.exists():
         create_invoice_workbook(path)
