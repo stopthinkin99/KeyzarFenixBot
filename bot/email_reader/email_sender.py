@@ -1,27 +1,29 @@
+REQUIRED_SENDER = "sales@fenixdiamonds.com"
+
+OL_FOLDER_SENT_MAIL = 5
+
 @staticmethod
 def _set_sender_account(
     *,
     outlook,
     message,
-    send_store_id: str | None,
-    send_from: str | None,
+    send_store_id: str | None = None,
+    send_from: str | None = None,
 ) -> str:
+    """
+    Force all bot-generated emails to use the real
+    sales@fenixdiamonds.com Outlook Account.
+
+    No fallback to Nishit's account is allowed.
+    """
+
     session = outlook.Session
 
-    target_address = (
-        (send_from or "")
-        .strip()
-        .lower()
-    )
-
-    if not target_address:
-        raise RuntimeError(
-            "No Outlook sending mailbox was selected."
-        )
+    required_sender = REQUIRED_SENDER.lower()
 
     print(
-        "[EMAIL] Looking for exact Outlook sending account: "
-        f"{target_address}"
+        "[EMAIL] Required Outlook sending account: "
+        f"{required_sender}"
     )
 
     for account in session.Accounts:
@@ -45,19 +47,62 @@ def _set_sender_account(
             ).strip()
 
             print(
-                "[EMAIL] Outlook account found: "
-                f"display={display_name}, smtp={smtp_address}"
+                "[EMAIL] Inspecting Outlook account: "
+                f"display={display_name}, "
+                f"smtp={smtp_address}"
             )
 
-            if smtp_address == target_address:
-                message.SendUsingAccount = account
+            if smtp_address != required_sender:
+                continue
 
-                print(
-                    "[EMAIL] EXACT sending account selected: "
-                    f"{smtp_address}"
+            #
+            # IMPORTANT:
+            # This is the programmatic equivalent of
+            # manually clicking sales@fenixdiamonds.com
+            # again in Outlook's From field.
+            #
+            message.SendUsingAccount = account
+
+            print(
+                "[EMAIL] SendUsingAccount explicitly set to: "
+                f"{smtp_address}"
+            )
+
+            #
+            # ALSO explicitly tell Outlook where the
+            # sent copy must be stored.
+            #
+            try:
+                delivery_store = account.DeliveryStore
+
+                if delivery_store is None:
+                    raise RuntimeError(
+                        "The Sales Outlook account does not "
+                        "have a DeliveryStore."
+                    )
+
+                sent_folder = delivery_store.GetDefaultFolder(
+                    OL_FOLDER_SENT_MAIL
                 )
 
-                return smtp_address
+                message.SaveSentMessageFolder = sent_folder
+
+                print(
+                    "[EMAIL] Sent Items folder explicitly set to: "
+                    f"{sent_folder.FolderPath}"
+                )
+
+            except Exception as exc:
+                raise RuntimeError(
+                    "Sales account was found, but Outlook "
+                    "could not select its Sent Items folder: "
+                    f"{exc}"
+                ) from exc
+
+            return smtp_address
+
+        except RuntimeError:
+            raise
 
         except Exception as exc:
             print(
@@ -65,8 +110,12 @@ def _set_sender_account(
                 f"{exc}"
             )
 
+    #
+    # NO FALLBACK.
+    #
     raise RuntimeError(
-        "The selected Outlook mailbox could not be found "
-        "as a sending account. "
-        f"Requested sender: {target_address}"
+        "Cannot send this email because Outlook does not "
+        "contain the required sending account "
+        "'sales@fenixdiamonds.com'. "
+        "The bot refused to fall back to another account."
     )

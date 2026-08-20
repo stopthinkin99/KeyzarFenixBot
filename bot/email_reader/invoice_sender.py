@@ -6,7 +6,6 @@ from pathlib import Path
 
 from config import SENT_REPORT_DIR
 from email_reader.email_sender import OutlookEmailSender, REQUIRED_BOT_SENDER
-from email_reader.outlook_reader import load_saved_mailbox
 from excel_reports.daily_report import (
     PENDING_INVOICE_FILENAME,
     get_current_invoice_path,
@@ -16,6 +15,10 @@ from excel_reports.daily_report import (
 
 INVOICE_RECIPIENT = "salesinvoice@egonservices.com"
 INVOICE_CC = "fenixny.bizops@fenixdiamonds.com"
+
+REQUIRED_SENDER = "sales@fenixdiamonds.com"
+
+OL_FOLDER_SENT_MAIL = 5
 
 
 def _log(
@@ -165,9 +168,6 @@ def send_current_keyzar_invoice(
         return None
 
     workbook_path, archive_path = prepared
-    saved_mailbox = load_saved_mailbox()
-    selected_store_id = saved_mailbox.get("store_id", "").strip()
-    selected_mailbox = saved_mailbox.get("display_name", "").strip()
 
     _log(log_callback, f"Sending {workbook_path.name}...")
     _log(
@@ -183,8 +183,6 @@ def send_current_keyzar_invoice(
         OutlookEmailSender().send(
             recipients=INVOICE_RECIPIENT,
             cc=INVOICE_CC,
-            send_from=REQUIRED_BOT_SENDER,
-            send_store_id=selected_store_id,
             subject=f"Keyzar Invoice {send_date.strftime('%m%d%y')}",
             body=(
                 "Hi,\n\n"
