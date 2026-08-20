@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 import tempfile
-import urllib.error
-import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -11,9 +11,11 @@ from pathlib import Path
 GITHUB_OWNER = "stopthinkin99"
 GITHUB_REPO = "KeyzarFenixBot"
 GITHUB_BRANCH = "main"
+
 REMOTE_BOT_FOLDER = "bot"
 
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = Path(sys.executable).resolve().parent
+
 LOCAL_BOT_DIR = APP_DIR / "bot"
 
 PROTECTED_NAMES = {
@@ -25,8 +27,6 @@ PROTECTED_NAMES = {
     "keyzar_jobs.db",
 }
 
-USER_AGENT = "KeyzarFenixBot-Updater/2.0"
-
 
 def _is_protected(relative_path: Path) -> bool:
     return any(
@@ -35,113 +35,83 @@ def _is_protected(relative_path: Path) -> bool:
     )
 
 
-def _download_repository_zip(
+def _download_zip_with_powershell(
+    url: str,
     destination: Path,
 ) -> None:
-    url = (
-        f"https://codeload.github.com/"
-        f"{GITHUB_OWNER}/{GITHUB_REPO}/"
-        f"zip/refs/heads/{GITHUB_BRANCH}"
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        (
+            "$ErrorActionPreference='Stop'; "
+            f"Invoke-WebRequest "
+            f"-Uri '{url}' "
+            f"-OutFile '{destination}' "
+            "-UseBasicParsing"
+        ),
+    ]
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        creationflags=0x08000000,
     )
 
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-        },
-    )
-
-    with urllib.request.urlopen(
-        request,
-        timeout=90,
-    ) as response:
-        with destination.open("wb") as output_file:
-            shutil.copyfileobj(
-                response,
-                output_file,
-            )
-
-
-def _copy_bot_folder(
-    extracted_root: Path,
-    synced_files: list[str],
-) -> None:
-    repository_folder = (
-        extracted_root
-        / f"{GITHUB_REPO}-{GITHUB_BRANCH}"
-    )
-
-    remote_bot_dir = (
-        repository_folder
-        / REMOTE_BOT_FOLDER
-    )
-
-    if not remote_bot_dir.exists():
-        raise RuntimeError(
-            "The downloaded repository did not contain "
-            f"the '{REMOTE_BOT_FOLDER}' folder."
+    if result.returncode != 0:
+        error = (
+            result.stderr.strip()
+            or result.stdout.strip()
+            or "Unknown PowerShell download error."
         )
+
+        raise RuntimeError(
+            f"GitHub ZIP download failed: {error}"
+        )
+
+
+def sync_from_github() -> tuple[bool, str]:
+    """
+    Download the newest repository ZIP and replace only the bot folder.
+
+    Local data, credentials, browser profiles and databases remain untouched.
+    """
 
     LOCAL_BOT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    for source_path in remote_bot_dir.rglob("*"):
-        if not source_path.is_file():
-            continue
-
-        relative_path = source_path.relative_to(
-            remote_bot_dir
-        )
-
-        if _is_protected(relative_path):
-            continue
-
-        destination = (
-            LOCAL_BOT_DIR
-            / relative_path
-        )
-
-        destination.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        shutil.copy2(
-            source_path,
-            destination,
-        )
-
-        synced_files.append(
-            str(relative_path)
-        )
-
-
-def sync_from_github() -> tuple[bool, str]:
-    synced_files: list[str] = []
+    zip_url = (
+        f"https://github.com/"
+        f"{GITHUB_OWNER}/"
+        f"{GITHUB_REPO}/archive/"
+        f"refs/heads/{GITHUB_BRANCH}.zip"
+    )
 
     try:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix="keyzar_update_"
+        ) as temp_dir:
             temp_path = Path(temp_dir)
+
             zip_path = (
                 temp_path
-                / "repository.zip"
+                / "repo.zip"
             )
-            extract_path = (
+
+            extract_dir = (
                 temp_path
                 / "extracted"
             )
 
-            _download_repository_zip(
-                zip_path
-            )
-
-            extract_path.mkdir(
-                parents=True,
-                exist_ok=True,
+            _download_zip_with_powershell(
+                zip_url,
+                zip_path,
             )
 
             with zipfile.ZipFile(
@@ -149,30 +119,76 @@ def sync_from_github() -> tuple[bool, str]:
                 "r",
             ) as archive:
                 archive.extractall(
-                    extract_path
+                    extract_dir
                 )
 
-            _copy_bot_folder(
-                extracted_root=extract_path,
-                synced_files=synced_files,
+            repo_root = (
+                extract_dir
+                / (
+                    f"{GITHUB_REPO}-"
+                    f"{GITHUB_BRANCH}"
+                )
             )
 
-        return (
-            True,
-            (
-                f"Synced {len(synced_files)} "
-                "file(s) from GitHub."
-            ),
-        )
+            source_bot = (
+                repo_root
+                / REMOTE_BOT_FOLDER
+            )
 
-    except (
-        urllib.error.URLError,
-        urllib.error.HTTPError,
-        TimeoutError,
-        OSError,
-        RuntimeError,
-        zipfile.BadZipFile,
-    ) as exc:
+            if not source_bot.exists():
+                raise RuntimeError(
+                    "Downloaded repository does not "
+                    "contain the bot folder."
+                )
+
+            synced_files: list[str] = []
+
+            for source_file in (
+                source_bot.rglob("*")
+            ):
+                if not source_file.is_file():
+                    continue
+
+                relative_path = (
+                    source_file.relative_to(
+                        source_bot
+                    )
+                )
+
+                if _is_protected(
+                    relative_path
+                ):
+                    continue
+
+                destination = (
+                    LOCAL_BOT_DIR
+                    / relative_path
+                )
+
+                destination.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                shutil.copy2(
+                    source_file,
+                    destination,
+                )
+
+                synced_files.append(
+                    str(relative_path)
+                )
+
+            return (
+                True,
+                (
+                    f"Synced "
+                    f"{len(synced_files)} "
+                    f"file(s) from GitHub ZIP."
+                ),
+            )
+
+    except Exception as exc:
         return (
             False,
             (
